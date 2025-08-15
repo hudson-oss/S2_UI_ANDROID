@@ -15,7 +15,6 @@ jobs:
       KEYSTORE_PATH: S2PASS-Android/S2PASS-Android/release.keystore
       ANDROID_PLATFORM_PKG: platforms;android-34
       ANDROID_BUILD_TOOLS_PKG: build-tools;34.0.0
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,9 +40,8 @@ jobs:
       - name: Accept licenses & install platform/build-tools
         shell: bash
         run: |
-          set +o pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
           set -o pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
           sdkmanager --install "${ANDROID_PLATFORM_PKG}" "${ANDROID_BUILD_TOOLS_PKG}"
           sdkmanager --list | head -n 200 || true
 
@@ -52,7 +50,7 @@ jobs:
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
           ls -l "$KEYSTORE_PATH"
 
-      - name: Write keystore.properties (CI-only)
+      - name: Write keystore.properties (CI only)
         run: |
           cat > "$APP_DIR/app/keystore.properties" <<'EOF'
           storeFile=../release.keystore
@@ -74,12 +72,10 @@ jobs:
 
       - name: Setup Gradle caching
         uses: gradle/actions/setup-gradle@v3
-
-    with:
-        gradle-version: 8.1
+        with:
+          gradle-version: 8.1
 
       - name: Build Release APK (verbose)
-
         working-directory: ${{ env.APP_DIR }}
         run: ./gradlew assembleRelease --stacktrace --info --warning-mode all --no-daemon
 
