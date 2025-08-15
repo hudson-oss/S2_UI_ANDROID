@@ -79,6 +79,7 @@ jobs:
         gradle-version: 8.1
 
       - name: Build Release APK (verbose)
+
         working-directory: ${{ env.APP_DIR }}
         run: ./gradlew assembleRelease --stacktrace --info --warning-mode all --no-daemon
 
