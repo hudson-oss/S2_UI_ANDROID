@@ -1,34 +1,92 @@
 name: Android – Build Release APK
-on: { workflow_dispatch: {} }
+
+on:
+  workflow_dispatch: {}   # run manually from Actions tab
+  # If you ALSO want on-push builds, add:
+  # push:
+  #   branches: [ "main" ]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      APP_DIR: S2PASS-Android/S2PASS-Android
+      KEYSTORE_PATH: S2PASS-Android/S2PASS-Android/release.keystore
+      KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      KALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      KPW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '17' }
-      - uses: android-actions/setup-android@v3
-      - name: Decode keystore from secrets
-        env: { ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }} }
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Quick sanity check so failures are obvious
+      - name: Validate required secrets
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > S2PASS-Android/S2PASS-Android/release.keystore
+          missing=0
+          [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && echo "❌ ANDROID_KEYSTORE_BASE64 missing" && missing=1
+          [ -z "${KSP}" ] && echo "❌ ANDROID_KEYSTORE_PASSWORD missing" && missing=1
+          [ -z "${KALIAS}" ] && echo "❌ ANDROID_KEY_ALIAS missing" && missing=1
+          [ -z "${KPW}" ] && echo "❌ ANDROID_KEY_PASSWORD missing" && missing=1
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Set up JDK 17 (recommended for AGP)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode keystore from base64
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
+          ls -l "$APP_DIR"
+
       - name: Write keystore.properties (CI-only)
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          cat > S2PASS-Android/S2PASS-Android/app/keystore.properties <<'EOF'
+          cat > "$APP_DIR/app/keystore.properties" <<'EOF'
           storeFile=../release.keystore
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
           EOF
+          echo "Wrote $APP_DIR/app/keystore.properties"
+
+      - name: Ensure Gradle wrapper is executable
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          if [ ! -f gradlew ]; then
+            echo "❌ gradlew not found in $PWD"
+            ls -la
+            exit 1
+          fi
+          chmod +x gradlew
+
+      - name: Print project tree (helps if it fails early)
+        run: |
+          echo "Repository root:"
+          ls -la
+          echo "----"
+          echo "App dir ($APP_DIR):"
+          ls -la "$APP_DIR"
+
+      # Optional caching (speeds up builds)
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
       - name: Build Release APK
-        working-directory: S2PASS-Android/S2PASS-Android
-        run: ./gradlew assembleRelease --stacktrace
+        working-directory: ${{ env.APP_DIR }}
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
-          path: S2PASS-Android/S2PASS-Android/app/build/outputs/apk/release/*.apk
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/release/*.apk
