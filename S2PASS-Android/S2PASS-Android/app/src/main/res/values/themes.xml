@@ -1,1 +1,5 @@
-<resources><style name="Theme.S2Pass" parent="Theme.Material3.Light.NoActionBar"/></resources>
+<resources>
+    <style name="Theme.S2Pass" parent="Theme.Material3.Light.NoActionBar">
+        <!-- Customize your theme here -->
+    </style>
+</resources>
