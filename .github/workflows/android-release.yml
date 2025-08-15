@@ -1,8 +1,8 @@
 name: Android – Build Release APK
 
 on:
-  workflow_dispatch: {}   # run manually from Actions tab
-  # If you ALSO want on-push builds, add:
+  workflow_dispatch: {}  # Run manually from the Actions tab
+  # If you also want automatic builds on push to main, uncomment:
   # push:
   #   branches: [ "main" ]
 
@@ -12,30 +12,30 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
+    # >>> Adjust these if your project uses different versions/paths <<<
     env:
       APP_DIR: S2PASS-Android/S2PASS-Android
       KEYSTORE_PATH: S2PASS-Android/S2PASS-Android/release.keystore
-      KSP: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      KALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      KPW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      ANDROID_PLATFORM_PKG: platforms;android-34
+      ANDROID_BUILD_TOOLS_PKG: build-tools;34.0.0
+      # If your app needs 33 or 35, change the two lines above accordingly.
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Quick sanity check so failures are obvious
       - name: Validate required secrets
         run: |
           missing=0
           [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && echo "❌ ANDROID_KEYSTORE_BASE64 missing" && missing=1
-          [ -z "${KSP}" ] && echo "❌ ANDROID_KEYSTORE_PASSWORD missing" && missing=1
-          [ -z "${KALIAS}" ] && echo "❌ ANDROID_KEY_ALIAS missing" && missing=1
-          [ -z "${KPW}" ] && echo "❌ ANDROID_KEY_PASSWORD missing" && missing=1
+          [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] && echo "❌ ANDROID_KEYSTORE_PASSWORD missing" && missing=1
+          [ -z "${{ secrets.ANDROID_KEY_ALIAS }}" ] && echo "❌ ANDROID_KEY_ALIAS missing" && missing=1
+          [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}" ] && echo "❌ ANDROID_KEY_PASSWORD missing" && missing=1
           [ "$missing" -eq 0 ] || exit 1
 
-      - name: Set up JDK 17 (recommended for AGP)
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -44,10 +44,25 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept licenses & install platform/build-tools
+        shell: bash
+        run: |
+          # Avoid "yes | ... Broken pipe" killing the job
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          set -o pipefail
+
+          # Install the exact packages your Gradle build expects
+          sdkmanager --install "${ANDROID_PLATFORM_PKG}" "${ANDROID_BUILD_TOOLS_PKG}"
+
+          echo "::group::Installed SDK packages (head)"
+          sdkmanager --list | head -n 200 || true
+          echo "::endgroup::"
+
       - name: Decode keystore from base64
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
-          ls -l "$APP_DIR"
+          ls -l "$KEYSTORE_PATH"
 
       - name: Write keystore.properties (CI-only)
         run: |
@@ -59,7 +74,17 @@ jobs:
           EOF
           echo "Wrote $APP_DIR/app/keystore.properties"
 
-      - name: Ensure Gradle wrapper is executable
+      - name: Sanity: tree
+        run: |
+          echo "::group::Repository root"
+          ls -la
+          echo "::endgroup::"
+          echo "::group::App dir"
+          ls -la "$APP_DIR"
+          ls -la "$APP_DIR/app" || true
+          echo "::endgroup::"
+
+      - name: Ensure Gradle wrapper exists & is executable
         working-directory: ${{ env.APP_DIR }}
         run: |
           if [ ! -f gradlew ]; then
@@ -68,25 +93,42 @@ jobs:
             exit 1
           fi
           chmod +x gradlew
+          ./gradlew -v
 
-      - name: Print project tree (helps if it fails early)
-        run: |
-          echo "Repository root:"
-          ls -la
-          echo "----"
-          echo "App dir ($APP_DIR):"
-          ls -la "$APP_DIR"
-
-      # Optional caching (speeds up builds)
-      - name: Setup Gradle
+      # Optional but speeds up builds
+      - name: Setup Gradle caching
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build Release APK
+      - name: Print key build files (debug help)
         working-directory: ${{ env.APP_DIR }}
-        run: ./gradlew assembleRelease --stacktrace --no-daemon
+        run: |
+          echo "::group::gradle-wrapper.properties"
+          cat gradle/wrapper/gradle-wrapper.properties || true
+          echo "::endgroup::"
+          echo "::group::settings.gradle"
+          cat settings.gradle || true
+          echo "::endgroup::"
+          echo "::group::top-level build.gradle"
+          cat build.gradle || true
+          echo "::endgroup::"
+          echo "::group::app/build.gradle"
+          cat app/build.gradle || true
+          echo "::endgroup::"
+          echo "::group::gradle.properties"
+          cat gradle.properties || true
+          echo "::endgroup::"
+
+      - name: Warm up configuration (lists tasks)
+        working-directory: ${{ env.APP_DIR }}
+        run: ./gradlew :app:tasks --stacktrace --info --no-daemon || true
+
+      - name: Build Release APK (verbose)
+        working-directory: ${{ env.APP_DIR }}
+        run: ./gradlew assembleRelease --stacktrace --info --warning-mode all --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
           path: ${{ env.APP_DIR }}/app/build/outputs/apk/release/*.apk
+
