@@ -1,0 +1,7 @@
+name: Dispatch Smoke Test
+on: { workflow_dispatch: {} }
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "If you can run this, dispatch works."
