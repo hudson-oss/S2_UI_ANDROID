@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Gradle wrapper script to use system Gradle
+if command -v gradle >/dev/null 2>&1; then
+  gradle "$@"
+else
+  echo "Gradle not found. Please install Gradle or use system gradle to run the build." >&2
+  exit 1
+fi
