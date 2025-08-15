@@ -1,0 +1,1 @@
+Scan, validate, and manage tickets with S2 Pass on Android.

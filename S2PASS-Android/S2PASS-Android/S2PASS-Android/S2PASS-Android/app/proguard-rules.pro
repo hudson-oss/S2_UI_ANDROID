@@ -1,0 +1,4 @@
+-keep class kotlin.Metadata { *; }
+-keep class androidx.compose.** { *; }
+-dontwarn androidx.compose.**
+-dontwarn com.google.android.material.**

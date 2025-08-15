@@ -1,0 +1,2 @@
+S2 Pass provides a clean, fast interface for scanning and validating tickets at events.
+Replace this text with your official listing and add screenshots.

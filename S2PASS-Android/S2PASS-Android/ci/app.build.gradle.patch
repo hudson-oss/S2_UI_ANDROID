@@ -1,0 +1,30 @@
+
+*** app/build.gradle (before)
+--- app/build.gradle (after)
+@@
+ android {
++    signingConfigs {
++        release {
++            def props = new Properties()
++            def propsFile = file("keystore.properties")
++            if (propsFile.exists()) {
++                propsFile.withInputStream { stream -> props.load(stream) }
++                storeFile file(props.getProperty("storeFile"))
++                storePassword props.getProperty("storePassword")
++                keyAlias props.getProperty("keyAlias")
++                keyPassword props.getProperty("keyPassword")
++            } else {
++                println("WARNING: keystore.properties not found – skipping signing locally.")
++            }
++        }
++    }
+     buildTypes {
+         release {
+-            // default
++            minifyEnabled true
++            shrinkResources true
++            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
++            if (file("keystore.properties").exists()) { signingConfig signingConfigs.release }
+         }
+     }
+ }
