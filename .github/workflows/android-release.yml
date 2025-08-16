@@ -1,4 +1,5 @@
 name: Android - Build Release APK
+
 on:
   workflow_dispatch: {}
 
@@ -9,78 +10,90 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    # NOTE: Only reference these in steps as $APP_DIR, $KEYSTORE_PATH, etc.
     env:
       APP_DIR: S2PASS-Android/S2PASS-Android
-      KEYSTORE_PATH: ${{ env.APP_DIR }}/release.keystore
+      KEYSTORE_PATH: S2PASS-Android/S2PASS-Android/release.keystore
       ANDROID_PLATFORM_PKG: platforms;android-34
       ANDROID_BUILD_TOOLS_PKG: build-tools;34.0.0
 
     steps:
-      # Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Validate keystore secrets
+      # Ensure the 4 required secrets exist; fail fast if any are missing.
       - name: Validate keystore secrets
         id: validate-secrets
+        shell: bash
         run: |
           missing=0
-          [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && echo "❌ ANDROID_KEYSTORE_BASE64 missing" && missing=1
-          [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] && echo "❌ ANDROID_KEYSTORE_PASSWORD missing" && missing=1
-          [ -z "${{ secrets.ANDROID_KEY_ALIAS }}" ] && echo "❌ ANDROID_KEY_ALIAS missing" && missing=1
-          [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}" ] && echo "❌ ANDROID_KEY_PASSWORD missing" && missing=1
-          exit $missing
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "::error title=Missing secret::ANDROID_KEYSTORE_BASE64"
+            missing=1
+          fi
+          if [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ]; then
+            echo "::error title=Missing secret::ANDROID_KEYSTORE_PASSWORD"
+            missing=1
+          fi
+          if [ -z "${{ secrets.ANDROID_KEY_ALIAS }}" ]; then
+            echo "::error title=Missing secret::ANDROID_KEY_ALIAS"
+            missing=1
+          fi
+          if [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}" ]; then
+            echo "::error title=Missing secret::ANDROID_KEY_PASSWORD"
+            missing=1
+          fi
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
-      # Set up JDK 17 for the Android Gradle plugin (AGP 8.x requires Java 17)
+      # Java 17 required for modern AGP
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
 
-      # Set up Android SDK
+      # Install Android SDK + tools and accept licenses
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          api-level: 34
-          build-tools: 34.0.0
-          components: platform-tools, platforms;android-34, build-tools;34.0.0, tools
-          ndk: ""
-
-      # Accept Android SDK licenses
       - name: Accept SDK licenses
+        shell: bash
         run: yes | sdkmanager --licenses
 
-      # Decode keystore from base64 secret
+      # Decode keystore file from base64 secret
       - name: Decode keystore
         if: steps.validate-secrets.outputs.missing == '0'
+        shell: bash
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
 
-      # Write keystore properties for signing
+      # ✅ FIXED: Properly write keystore.properties via here-doc
       - name: Write keystore properties
         if: steps.validate-secrets.outputs.missing == '0'
+        shell: bash
         run: |
-          cat <<EOF > $APP_DIR/keystore.properties
+          cat <<EOF > "$APP_DIR/keystore.properties"
           storeFile=$KEYSTORE_PATH
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
           EOF
 
-      # Set up Gradle 8.1 (compatible with AGP 8.1.0)
+      # Optional but recommended: Gradle wrapper validation + caching
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.1
 
-      # Build the release APK
       - name: Build release APK
         working-directory: ${{ env.APP_DIR }}
+        shell: bash
         run: ./gradlew assembleRelease --no-daemon
 
-      # Upload generated APK
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-release
