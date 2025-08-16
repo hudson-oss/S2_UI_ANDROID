@@ -21,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Validate by exporting secrets into env (allowed) and checking in Bash
+      # ✅ No indexing; map secrets to env then check in Bash
       - name: Validate required secrets
         id: validate-secrets
         shell: bash
