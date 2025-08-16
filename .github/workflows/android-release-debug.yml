@@ -9,112 +9,124 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
+
     env:
       APP_DIR: S2PASS-Android/S2PASS-Android
       KEYSTORE_PATH: S2PASS-Android/S2PASS-Android/release.keystore
+      ANDROID_PLATFORM_PKG: platforms;android-34
+      ANDROID_BUILD_TOOLS_PKG: build-tools;34.0.0
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Validate required secrets
+        id: validate-secrets
+        shell: bash
         run: |
-          fail=0
-          [ -z "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && echo "❌ ANDROID_KEYSTORE_BASE64 missing" && fail=1
-          [ -z "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ] && echo "❌ ANDROID_KEYSTORE_PASSWORD missing" && fail=1
-          [ -z "${{ secrets.ANDROID_KEY_ALIAS }}" ] && echo "❌ ANDROID_KEY_ALIAS missing" && fail=1
-          [ -z "${{ secrets.ANDROID_KEY_PASSWORD }}" ] && echo "❌ ANDROID_KEY_PASSWORD missing" && fail=1
-          exit $fail
+          missing=0
+          for k in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${{ secrets[$k] }}" ]; then
+              echo "::error title=Missing secret::$k"
+              missing=1
+            fi
+          done
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+          if [ "$missing" -ne 0 ]; then exit 1; fi
 
-      - name: Set up JDK 17
+      - name: Java 17 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
 
-      - name: Set up Android SDK
+      - name: Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept licenses & install platform/build-tools
+      - name: Accept SDK licenses (non-fatal)
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          # Adjust these if your app uses a different compileSdk / buildToolsVersion
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null
-          sdkmanager --list | head -n 50 || true
+          # Avoid failing when nothing needs accepting (SIGPIPE on `yes`)
+          yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Ensure required SDK packages are installed
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/android-sdk}}"
+          echo "Using ANDROID_SDK_ROOT=$SDK_ROOT"
+          sdkmanager --sdk_root="$SDK_ROOT" \
+            "${ANDROID_PLATFORM_PKG}" \
+            "${ANDROID_BUILD_TOOLS_PKG}"
+          echo "Installed packages (top of list):"
+          sdkmanager --list | head -n 80 || true
+
+      - name: Repo sanity + tree
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          echo "PWD=$(pwd)"
+          echo "::group::Tree: repo root"; ls -la; echo "::endgroup::"
+          echo "::group::Tree: app"; ls -la app || true; echo "::endgroup::"
+          if [ ! -f ./gradlew ]; then
+            echo "::error ::gradlew not found in $PWD"
+            exit 1
+          fi
+          chmod +x ./gradlew
+          ./gradlew --version
 
       - name: Decode keystore
+        if: steps.validate-secrets.outputs.missing == '0'
+        shell: bash
         run: |
+          mkdir -p "$(dirname "$KEYSTORE_PATH")"
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
-          ls -l "${KEYSTORE_PATH}" || exit 1
+          ls -l "$KEYSTORE_PATH"
 
       - name: Write keystore.properties (CI only)
+        if: steps.validate-secrets.outputs.missing == '0'
+        working-directory: ${{ env.APP_DIR }}/app
+        shell: bash
         run: |
-          cat > "$APP_DIR/app/keystore.properties" <<'EOF'
+          cat > keystore.properties <<EOF
           storeFile=../release.keystore
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
           EOF
-          echo "Wrote $APP_DIR/app/keystore.properties"
+          echo "keystore.properties:"
+          sed 's/Password=.*/Password=***REDACTED***/' keystore.properties
 
-      - name: Show tree
-        run: |
-          echo "::group::Tree root"
-          ls -la
-          echo "::endgroup::"
-          echo "::group::Tree app dir"
-          ls -la "$APP_DIR"
-          ls -la "$APP_DIR/app" || true
-          echo "::endgroup::"
-
-      - name: Ensure Gradle wrapper exists & is executable
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          if [ ! -f gradlew ]; then
-            echo "❌ gradlew not found in $PWD"
-            ls -la
-            exit 1
-          fi
-
-          ./gradlew -v
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
         with:
-      gradle-version: 8.1
+          gradle-version: 8.1
 
-
-      - name: Print Android/Gradle environment
+      - name: List Gradle tasks
         working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: ./gradlew tasks --no-daemon -q || true
+
+      - name: Build debug and release (verbose)
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
         run: |
-          echo "::group::Wrapper properties"
-          cat gradle/wrapper/gradle-wrapper.properties || true
-          echo "::endgroup::"
-          echo "::group::Top-level build.gradle"
-          cat build.gradle || true
-          echo "::endgroup::"
-          echo "::group::Settings.gradle"
-          cat settings.gradle || true
-          echo "::endgroup::"
-          echo "::group::App build.gradle"
-          cat app/build.gradle || true
-          echo "::endgroup::"
-          echo "::group::Gradle properties (if any)"
-          cat gradle.properties || true
+          # Build both; if one variant fails we'll still see logs for the other
+          set -o pipefail
+          ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace --info --warning-mode all
+
+      - name: Show produced outputs
+        if: always()
+        shell: bash
+        run: |
+          echo "::group::Outputs under app/build/outputs"
+          find "${APP_DIR}/app/build/outputs" -maxdepth 4 -type f -print || true
           echo "::endgroup::"
 
-      - name: Warm up configuration (no build)
-        working-directory: ${{ env.APP_DIR }}
-        run: ./gradlew :app:tasks --stacktrace --info --no-daemon || true
-
-      - name: Build Release APK (max logging)
-        working-directory: ${{ env.APP_DIR }}
-        run: ./gradlew assembleRelease --stacktrace --info --warning-mode all --no-daemon
-
-      - name: Upload APK
+      - name: Upload all APKs (debug + release)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: ${{ env.APP_DIR }}/app/build/outputs/apk/release/*.apk
+          name: all-apks
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
