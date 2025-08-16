@@ -1,4 +1,107 @@
-buildscript {
-    repositories { google(); mavenCentral() }
-    dependencies { classpath 'com.android.tools.build:gradle:8.1.0' }
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android' // ok even if project is Java-only
+}
+
+android {
+    namespace 'com.s2pass.uidesign'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.s2pass.uidesign'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Load signing from keystore.properties if available (CI writes this)
+    def kProps = new Properties()
+    def kFileLocal = file("keystore.properties")                    // app/keystore.properties
+    def kFileRoot  = rootProject.file("keystore.properties")        // project-root fallback
+    def hasSigning = false
+    if (kFileLocal.exists()) {
+        kFileLocal.withInputStream { kProps.load(it) }
+        hasSigning = true
+    } else if (kFileRoot.exists()) {
+        kFileRoot.withInputStream { kProps.load(it) }
+        hasSigning = true
+    }
+
+    signingConfigs {
+        if (hasSigning) {
+            release {
+                // keystore.properties should contain:
+                // storeFile=<path-to-keystore>  (relative paths allowed)
+                // storePassword=...
+                // keyAlias=...
+                // keyPassword=...
+                storeFile file(kProps['storeFile'])
+                storePassword kProps['storePassword']
+                keyAlias kProps['keyAlias']
+                keyPassword kProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Use release signing only if we loaded it
+            if (hasSigning && signingConfigs.findByName("release") != null) {
+                signingConfig signingConfigs.release
+            }
+            // Keep it simple until proguard rules are ready
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // standard debug config
+        }
+    }
+
+    buildFeatures {
+        viewBinding true
+        // compose false // enable if you add Jetpack Compose
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    packagingOptions {
+        resources {
+            excludes += [
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/LICENSE.txt',
+                'META-INF/license.txt',
+                'META-INF/NOTICE',
+                'META-INF/NOTICE.txt',
+                'META-INF/notice.txt',
+                'META-INF/AL2.0',
+                'META-INF/LGPL2.1'
+            ]
+        }
+    }
+}
+
+dependencies {
+    // AndroidX core + UI
+    implementation "androidx.core:core-ktx:1.13.1"
+    implementation "androidx.appcompat:appcompat:1.7.0"
+    implementation "com.google.android.material:material:1.12.0"
+    implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+    implementation "androidx.activity:activity-ktx:1.9.2"
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.4"
+
+    // Tests
+    testImplementation "junit:junit:4.13.2"
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.6.1"
 }
