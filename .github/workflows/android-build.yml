@@ -1,0 +1,89 @@
+name: Android CI — Build APKs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # Change this if your Android project moves
+    env:
+      APP_DIR: S2PASS-Android/S2PASS-Android
+      ANDROID_PLATFORM_PKG: platforms;android-34
+      ANDROID_BUILD_TOOLS_PKG: build-tools;34.0.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept SDK licenses (non-fatal)
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install required SDK packages
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/android-sdk}}"
+          echo "Using ANDROID_SDK_ROOT=$SDK_ROOT"
+          sdkmanager --sdk_root="$SDK_ROOT" \
+            "${ANDROID_PLATFORM_PKG}" \
+            "${ANDROID_BUILD_TOOLS_PKG}"
+          sdkmanager --list | head -n 60 || true
+
+      - name: Gradle cache
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Verify wrapper & print versions
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      - name: Build Debug & Release
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          set -e
+          ./gradlew clean
+          ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace --warning-mode all
+
+      - name: List outputs (for debugging)
+        if: always()
+        shell: bash
+        run: |
+          echo "::group::outputs"
+          find "${APP_DIR}/app/build/outputs" -maxdepth 4 -type f -print || true
+          echo "::endgroup::"
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload Release APK (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
