@@ -1,7 +1,6 @@
-
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android' version '1.9.24'
+    id 'org.jetbrains.kotlin.android'   // ← no version here; it's set in root build.gradle
 }
 
 android {
@@ -14,6 +13,7 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -22,9 +22,26 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.14'
     }
+
+    // ✅ Make Java 17 explicit
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // ✅ Make Kotlin 17 explicit
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+// Optional but recommended: ensures toolchain = 17 as well
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
+    // Compose BOM + core
     implementation platform('androidx.compose:compose-bom:2024.06.00')
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.activity:activity-compose:1.9.1'
@@ -34,10 +51,8 @@ dependencies {
     implementation 'androidx.compose.ui:ui-tooling-preview'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     implementation 'androidx.navigation:navigation-compose:2.7.7'
-}
 
-// inserted
-repositories {
-    google()
-    mavenCentral()
+    // ✅ Needed for XML Material3 theme used in manifest
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
 }
