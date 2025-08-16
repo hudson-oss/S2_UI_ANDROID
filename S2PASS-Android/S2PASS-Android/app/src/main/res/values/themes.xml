@@ -1,8 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.S2Pass" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Your customizations -->
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
-        <!-- Add typical M3 color/typography attrs if you use them -->
-    </style>
+    <!-- Simple app theme for Compose apps; no action bar -->
+    <style name="Theme.S2Pass" parent="Theme.Material3.DayNight.NoActionBar" />
 </resources>
