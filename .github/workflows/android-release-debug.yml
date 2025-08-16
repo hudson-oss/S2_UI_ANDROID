@@ -109,7 +109,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.1
-
+          
+      - name: Show manifest and themes   # 👈 diagnostic step
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          echo "== AndroidManifest.xml =="
+          sed -n '1,160p' app/src/main/AndroidManifest.xml || true
+          echo "== themes.xml =="
+          sed -n '1,200p' app/src/main/res/values/themes.xml || true
+          
       - name: List Gradle tasks
         working-directory: ${{ env.APP_DIR }}
         shell: bash
